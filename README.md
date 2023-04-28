@@ -1,4 +1,4 @@
-# Robotics Discord Bot (Bob Ross)
+# Robotics Discord Bot (Bob Ross 🎨)
 
 A discord bot that handles some simple functions. Currently supports:
 - Notifying channel of new TikTok videos
