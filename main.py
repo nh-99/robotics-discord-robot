@@ -63,6 +63,9 @@ async def on_ready():
     print(f'Logged in as {client.user} (ID: {client.user.id})')
     print('------')
 
+    # Set bot status
+    await client.change_presence(activity=discord.Game(name="oil paints on canvas"))
+
 
 @client.tree.command()
 @app_commands.describe(
