@@ -79,7 +79,7 @@ async def show_join_date(interaction: discord.Interaction, member: discord.Membe
     await interaction.response.send_message(f'{member} joined at {discord.utils.format_dt(member.joined_at)}', ephemeral=True)
 
 
-@tl.job(interval=timedelta(seconds=5))
+@tl.job(interval=timedelta(minutes=10))
 def check_videos():
     subscribed_channel_files = os.listdir('./data')
 
