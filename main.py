@@ -9,11 +9,13 @@ import youtube_video_scraper
 import os
 import re
 import asyncio
+import openai
 from discord import app_commands
 
 
 MY_GUILD = discord.Object(id=settings.GUILD_ID)  # replace with your guild id
 tl = Timeloop()
+openai.api_key = settings.OPENAI_API_KEY
 
 
 class MyClient(discord.Client):
@@ -36,8 +38,23 @@ class MyClient(discord.Client):
         self.tree.copy_global_to(guild=MY_GUILD)
         await self.tree.sync(guild=MY_GUILD)
 
+    async def on_message(self, message):
+        # we do not want the bot to reply to itself
+        if message.author.id == self.user.id:
+            return
+
+        if client.user in message.mentions:
+            content_filtered = re.search(r'<[@0-9]+> (.*)', message.content)
+            completion = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=[
+                {"role": "system", "content": "From now on, you are going to act like the famous painter Bob Ross. Thank you."},
+                {"role": "user", "content": content_filtered.group(1).strip()},
+                {"role": "system", "content": "Keep the response size to a short paragraph."},
+            ])
+            await message.reply(completion.choices[0].message.content, mention_author=True)
+
 
 intents = discord.Intents.default()
+intents.message_content = True
 client = MyClient(intents=intents)
 
 
