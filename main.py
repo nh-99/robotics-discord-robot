@@ -6,16 +6,15 @@ import discord
 import settings
 import tiktok_video_scraper
 import youtube_video_scraper
+import openai_wrapper
 import os
 import re
 import asyncio
-import openai
 from discord import app_commands
 
 
 MY_GUILD = discord.Object(id=settings.GUILD_ID)  # replace with your guild id
 tl = Timeloop()
-openai.api_key = settings.OPENAI_API_KEY
 
 
 class MyClient(discord.Client):
@@ -29,6 +28,12 @@ class MyClient(discord.Client):
         # Note: When using commands.Bot instead of discord.Client, the bot will
         # maintain its own tree instead.
         self.tree = app_commands.CommandTree(self)
+
+        # Setup reaction for role assignment
+        self.role_message_id = int(settings.ROLE_MESSAGE_ID)  # ID of the message that can be reacted to to add/remove a role.
+        self.emoji_to_role = {
+            discord.PartialEmoji(name='🎨'): int(settings.VERIFIED_ROLE_ID),
+        }
 
     # In this basic example, we just synchronize the app commands to one guild.
     # Instead of specifying a guild to every command, we copy over our global commands instead.
@@ -44,17 +49,79 @@ class MyClient(discord.Client):
             return
 
         if client.user in message.mentions:
-            content_filtered = re.search(r'<[@0-9]+> (.*)', message.content)
-            completion = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=[
-                {"role": "system", "content": "From now on, you are going to act like the famous painter Bob Ross. Thank you."},
-                {"role": "user", "content": content_filtered.group(1).strip()},
-                {"role": "system", "content": "Keep the response size to a short paragraph."},
-            ])
-            await message.reply(completion.choices[0].message.content, mention_author=True)
+            bob_ross_message = openai_wrapper.bob_ross_chat(message.content)
+            await message.reply(bob_ross_message, mention_author=True)
+
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        """Gives a role based on a reaction emoji."""
+        # Make sure that the message the user is reacting to is the one we care about.
+        if payload.message_id != self.role_message_id:
+            return
+
+        guild = self.get_guild(payload.guild_id)
+        if guild is None:
+            # Check if we're still in the guild and it's cached.
+            return
+
+        try:
+            role_id = self.emoji_to_role[payload.emoji]
+        except KeyError:
+            # If the emoji isn't the one we care about then exit as well.
+            return
+
+        role = guild.get_role(role_id)
+        if role is None:
+            # Make sure the role still exists and is valid.
+            return
+
+        try:
+            # Finally, add the role.
+            await payload.member.add_roles(role)
+        except discord.HTTPException:
+            # If we want to do something in case of errors we'd do it here.
+            pass
+
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        """Removes a role based on a reaction emoji."""
+        # Make sure that the message the user is reacting to is the one we care about.
+        if payload.message_id != self.role_message_id:
+            return
+
+        guild = self.get_guild(payload.guild_id)
+        if guild is None:
+            # Check if we're still in the guild and it's cached.
+            return
+
+        try:
+            role_id = self.emoji_to_role[payload.emoji]
+        except KeyError:
+            # If the emoji isn't the one we care about then exit as well.
+            return
+
+        role = guild.get_role(role_id)
+        if role is None:
+            # Make sure the role still exists and is valid.
+            return
+
+        # The payload for `on_raw_reaction_remove` does not provide `.member`
+        # so we must get the member ourselves from the payload's `.user_id`.
+        member = guild.get_member(payload.user_id)
+        if member is None:
+            # Make sure the member still exists and is valid.
+            return
+
+        try:
+            # Finally, remove the role.
+            await member.remove_roles(role)
+        except discord.HTTPException:
+            # If we want to do something in case of errors we'd do it here.
+            pass
+
 
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 client = MyClient(intents=intents)
 
 
@@ -77,7 +144,7 @@ async def subscribe(interaction: discord.Interaction, social_media: str, usernam
 
     # Open file for storing data, or send error
     if social_media != 'tiktok' and social_media != 'youtube':
-        interaction.response.send_message(f'Invalid social media {social_media}', ephemeral=True)
+        await interaction.response.send_message(f'Invalid social media {social_media}', ephemeral=True)
     
     datafile = open(f"./data/subscribed_{social_media}_{username}_{channel.id}.txt", "w+")
 
@@ -86,6 +153,23 @@ async def subscribe(interaction: discord.Interaction, social_media: str, usernam
     datafile.close()
 
     await interaction.response.send_message(f'Subscribed to {username} on {social_media} in #{channel}', ephemeral=True)
+
+
+@client.tree.command()
+@app_commands.describe(
+    prompt='Give Bob Ross some direction'
+)
+async def paint(interaction: discord.Interaction, prompt: str):
+    """Bob Ross hand paints you a picture"""
+    channel_to_respond = interaction.channel_id
+    await interaction.response.send_message(f"This is going to be beautiful")
+
+    bob_ross_message = await openai_wrapper.bob_ross_chat(f"paint me a picture of {prompt}")
+    bob_ross_image_url = await openai_wrapper.bob_ross_paint(prompt + ' like bob ross')
+
+    channel = client.get_channel(channel_to_respond)
+    await channel.send(bob_ross_message)
+    await channel.send(bob_ross_image_url)
 
 
 # A Context Menu command is an app command that can be run on a member or on a message by
